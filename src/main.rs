@@ -1,17 +1,12 @@
 mod novimem;
 
 use novimem::*;
-use std::{
-    i64,
-    io::{stdin, stdout, Write},
-};
+use std::io::{stdin, stdout, Write};
 
 fn main() {
     let pid = 25831;
     let mut m = NoviMem::new(pid);
-    // m.search(b"ELF");
-    while let Some(results) = m.search(&100000000i64.to_le_bytes()) {
-    // while let Some(results) = m.search(b"ELF") {
+    if let Some(results) = m.search(&100000000u64.to_le_bytes()) {
         println!("Found {} results.", results.len());
         println!("{:X?}", results);
         if results.len() == 1 {
@@ -20,10 +15,10 @@ fn main() {
             let mut input = String::new();
             match stdin().read_line(&mut input) {
                 Ok(n) => match n {
-                    0 => break,
-                    1 => break,
+                    0 => (),
+                    1 => (),
                     _ => {
-                        let val = input[..input.len() - 1].parse::<i64>().unwrap();
+                        let val = input[..input.len() - 1].parse::<u64>().unwrap();
                         let addr = results.first().unwrap();
                         if !m.setval(*addr as u64, &val.to_le_bytes()) {
                             println!("Failed to write value {} at addr {:X}", val, addr);
@@ -32,11 +27,9 @@ fn main() {
                 },
                 Err(error) => println!("error: {}", error),
             }
-            break;
         } else {
             print!("Found {} results", results.len());
             stdout().flush().unwrap();
-            break;
         }
     }
 

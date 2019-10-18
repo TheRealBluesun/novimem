@@ -1,8 +1,7 @@
 use std::{
     fs::File,
     fs::OpenOptions,
-    io::{self, prelude::*, BufReader, Seek, SeekFrom, Write},
-    str, u64,
+    io::{prelude::*, BufReader, Seek, SeekFrom, Write}, u64,
 };
 
 #[derive(Debug, Clone)]
@@ -29,7 +28,7 @@ pub struct NoviMem {
 impl NoviMem {
     pub fn new(pid: u32) -> NoviMem {
         let mut m = NoviMem {
-            pid: pid,
+            pid,
             pname: NoviMem::get_pname(pid),
             regions: Vec::new(),
             results: None,
@@ -52,15 +51,21 @@ impl NoviMem {
     }
 
     pub fn search(&self, val: &[u8]) -> Option<Vec<usize>> {
-        use regex::bytes::Regex;
+        use regex::bytes::RegexBuilder;
         let mut memfile = self.memfile.try_clone().unwrap();
-        // let valstr = String::from_utf8_lossy(&val[..]).to_string();
-        let valstr = unsafe { String::from_utf8_unchecked(val.to_vec()) };
-        // let valstr = r"\x00\xE1\xF5\x05\x00\x00\x00\x00";
-        let re = Regex::new(&valstr).unwrap();
-        // let re = Regex::new(val)unwrap();
+        let mut valstr = String::new();
+        for b in val {
+            valstr.push_str(&format!("\\x{:02x}", b).to_string());
+        }
 
-        println!("Searching for {:X?}", val);
+        let mut builder = RegexBuilder::new(&valstr.to_string());
+        builder.unicode(false);
+        builder.dot_matches_new_line(true);
+        builder.case_insensitive(false);
+
+        let re = builder.build().unwrap();
+
+        println!("Searching for {}", valstr);
         let mut results = Vec::new();
 
         self.regions.iter().for_each(|region| {
@@ -68,8 +73,23 @@ impl NoviMem {
             memfile.seek(SeekFrom::Start(region.start_addr)).unwrap();
             let mut reader = BufReader::with_capacity(region.size as usize, &memfile);
             let buf = reader.fill_buf().unwrap();
+            // Dump this module to a file
+            // let mut f = File::create(format!(
+            //     "{:X}.{:X}.{:X}.dump",
+            //     region.start_addr, region.size, region.end_addr
+            // ))
+            // .unwrap();
+            // f.write(buf).unwrap();
+            // f.flush().unwrap();
 
-            // let matches = unsafe{ re.find_iter(&str::from_utf8_unchecked(buf)) };
+            // let f = File::open(format!(
+            //     "{:X}.{:X}.{:X}.dump",
+            //     region.start_addr, region.size, region.end_addr
+            // ))
+            // .unwrap();
+            // let mut reader = BufReader::with_capacity(region.size as usize, &memfile);
+            // let buf = reader.fill_buf().unwrap();
+
             let search_data = buf.to_vec();
             let matches = re.find_iter(&search_data);
 
@@ -86,15 +106,8 @@ impl NoviMem {
                 // memfile.try_clone().unwrap().seek(SeekFrom::Start(region.start_addr + m.start() as u64)).unwrap();
                 // memfile.write(&100000000i64.to_le_bytes()).unwrap();
             }
-            // Dump this module to a file
-            let mut f = File::create(format!(
-                "{:X}.{:X}.{:X}.dump",
-                region.start_addr, region.size, region.end_addr
-            ))
-            .unwrap();
-            f.write(buf).unwrap();
         });
-        if results.len() > 0 {
+        if !results.is_empty() {
             Some(results)
         } else {
             None
@@ -169,6 +182,7 @@ impl NoviMem {
             }
         }
         // We only care about modules that are marked as executable
-        self.regions.retain(|x| x.execable && x.readable);
+        self.regions
+            .retain(|x| x.execable && x.readable && x.writeable);
     }
 }
