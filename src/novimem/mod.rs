@@ -1,5 +1,3 @@
-use memmap::{Mmap, MmapOptions};
-// use regex::{Regex, bytes::Regex};
 use std::{
     fs::File,
     fs::OpenOptions,
@@ -22,6 +20,7 @@ struct MemRegion {
 
 pub struct NoviMem {
     pid: u32,
+    pname: String,
     regions: Vec<MemRegion>,
     results: Option<Vec<usize>>,
     memfile: File,
@@ -31,6 +30,7 @@ impl NoviMem {
     pub fn new(pid: u32) -> NoviMem {
         let mut m = NoviMem {
             pid: pid,
+            pname: NoviMem::get_pname(pid),
             regions: Vec::new(),
             results: None,
             memfile: NoviMem::open_mem(pid),
@@ -46,10 +46,19 @@ impl NoviMem {
     //     self.search(&val.to_le_bytes())
     // }
 
-    pub fn search(&self, val: &[u8]) -> Vec<usize> {
+    pub fn setval(&mut self, addr: u64, val: &[u8]) -> bool {
+        self.memfile.seek(SeekFrom::Start(addr)).unwrap();
+        self.memfile.write(val).unwrap() == val.len()
+    }
+
+    pub fn search(&self, val: &[u8]) -> Option<Vec<usize>> {
         use regex::bytes::Regex;
         let mut memfile = self.memfile.try_clone().unwrap();
-        let re = Regex::new(&String::from_utf8_lossy(&val[..]).to_string()).unwrap();
+        // let valstr = String::from_utf8_lossy(&val[..]).to_string();
+        let valstr = unsafe { String::from_utf8_unchecked(val.to_vec()) };
+        // let valstr = r"\x00\xE1\xF5\x05\x00\x00\x00\x00";
+        let re = Regex::new(&valstr).unwrap();
+        // let re = Regex::new(val)unwrap();
 
         println!("Searching for {:X?}", val);
         let mut results = Vec::new();
@@ -66,12 +75,12 @@ impl NoviMem {
 
             for m in matches {
                 results.push(m.start() + region.start_addr as usize);
-                println!("{:X?}", m.as_bytes());
+                // println!("{:X?}", m.as_bytes());
                 println!(
                     "Found result at {:X} ({:X} + {:X}) in '{}'",
+                    m.start() + region.start_addr as usize,
                     region.start_addr,
                     m.start(),
-                    m.start() + region.start_addr as usize,
                     region.name,
                 );
                 // memfile.try_clone().unwrap().seek(SeekFrom::Start(region.start_addr + m.start() as u64)).unwrap();
@@ -85,7 +94,11 @@ impl NoviMem {
             .unwrap();
             f.write(buf).unwrap();
         });
-        results
+        if results.len() > 0 {
+            Some(results)
+        } else {
+            None
+        }
     }
 
     fn open_mem(pid: u32) -> File {
@@ -96,6 +109,19 @@ impl NoviMem {
             .open(format!("/proc/{}/mem", pid))
             // .open("/proc/self/mem")
             .expect("Unable to open file")
+    }
+
+    fn get_pname(pid: u32) -> String {
+        let mut retstr = String::new();
+        OpenOptions::new()
+            .read(true)
+            .write(false)
+            .create(false)
+            .open(format!("/proc/{}/cmdline", pid))
+            .expect("Unable to open pname file")
+            .read_to_string(&mut retstr)
+            .unwrap();
+        retstr
     }
 
     fn parse_maps(&mut self) {
