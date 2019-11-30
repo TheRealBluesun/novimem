@@ -1,7 +1,10 @@
+pub mod proc_search;
+
 use std::{
     fs::File,
     fs::OpenOptions,
-    io::{prelude::*, BufReader, Seek, SeekFrom, Write}, u64,
+    io::{prelude::*, BufReader, Seek, SeekFrom, Write},
+    u64,
 };
 
 #[derive(Debug, Clone)]
@@ -17,6 +20,18 @@ struct MemRegion {
     name: String,
 }
 
+impl MemRegion {
+    pub fn dump_to_file(&self, buf: &[u8]) {
+        let mut f = File::create(format!(
+            "{:X}.{:X}.{:X}.dump",
+            self.start_addr, self.size, self.end_addr
+        ))
+        .unwrap();
+        f.write(buf).unwrap();
+        f.flush().unwrap();
+    }
+}
+
 pub struct NoviMem {
     pid: u32,
     pname: String,
@@ -29,15 +44,12 @@ impl NoviMem {
     pub fn new(pid: u32) -> NoviMem {
         let mut m = NoviMem {
             pid,
-            pname: NoviMem::get_pname(pid),
+            pname: String::new(), //NoviMem::get_pname(pid),
             regions: Vec::new(),
             results: None,
             memfile: NoviMem::open_mem(pid),
         };
         m.parse_maps();
-        // for r in m.regions.clone() {
-        //     println!("{:X?}", r);
-        // }
         m
     }
 
@@ -73,29 +85,11 @@ impl NoviMem {
             memfile.seek(SeekFrom::Start(region.start_addr)).unwrap();
             let mut reader = BufReader::with_capacity(region.size as usize, &memfile);
             let buf = reader.fill_buf().unwrap();
-            // Dump this module to a file
-            // let mut f = File::create(format!(
-            //     "{:X}.{:X}.{:X}.dump",
-            //     region.start_addr, region.size, region.end_addr
-            // ))
-            // .unwrap();
-            // f.write(buf).unwrap();
-            // f.flush().unwrap();
-
-            // let f = File::open(format!(
-            //     "{:X}.{:X}.{:X}.dump",
-            //     region.start_addr, region.size, region.end_addr
-            // ))
-            // .unwrap();
-            // let mut reader = BufReader::with_capacity(region.size as usize, &memfile);
-            // let buf = reader.fill_buf().unwrap();
-
             let search_data = buf.to_vec();
             let matches = re.find_iter(&search_data);
 
             for m in matches {
                 results.push(m.start() + region.start_addr as usize);
-                // println!("{:X?}", m.as_bytes());
                 println!(
                     "Found result at {:X} ({:X} + {:X}) in '{}'",
                     m.start() + region.start_addr as usize,
@@ -103,8 +97,6 @@ impl NoviMem {
                     m.start(),
                     region.name,
                 );
-                // memfile.try_clone().unwrap().seek(SeekFrom::Start(region.start_addr + m.start() as u64)).unwrap();
-                // memfile.write(&100000000i64.to_le_bytes()).unwrap();
             }
         });
         if !results.is_empty() {
@@ -121,7 +113,7 @@ impl NoviMem {
             .create(false)
             .open(format!("/proc/{}/mem", pid))
             // .open("/proc/self/mem")
-            .expect("Unable to open file")
+            .expect(&format!("Unable to open memory for pid {}", pid))
     }
 
     fn get_pname(pid: u32) -> String {
@@ -182,7 +174,6 @@ impl NoviMem {
             }
         }
         // We only care about modules that are marked as executable
-        self.regions
-            .retain(|x| x.execable && x.readable && x.writeable);
+        self.regions.retain(|x| x.readable && x.writeable);
     }
 }
