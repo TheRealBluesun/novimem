@@ -1,3 +1,4 @@
+pub mod mem_image;
 pub mod proc_search;
 
 use std::{
@@ -12,7 +13,7 @@ use std::{
 struct MemRegion {
     start_addr: u64,
     end_addr: u64,
-    size: u64,
+    size: usize,
     readable: bool,
     writeable: bool,
     execable: bool,
@@ -67,17 +68,27 @@ impl NoviMem {
     pub fn getval(&mut self, addr: u64, size: usize) -> Option<Vec<u8>> {
         if self.memfile.seek(SeekFrom::Start(addr)).is_ok() {
             let mut reader = BufReader::with_capacity(size as usize, &self.memfile);
-            if let Ok(buf) = reader.fill_buf() {
-                Some(buf.to_vec())
-            } else {
-                println!(
-                    "Unable to fill buffer in getval() at address {} with size {}",
-                    addr, size
-                );
-                None
+            match reader.fill_buf() {
+                Ok(buf) => Some(buf.to_vec()),
+                Err(e) => {
+                    println!(
+                        "Unable to fill buffer in getval() at address {:X} with size {}: {}",
+                        addr, size, e
+                    );
+                    None
+                }
             }
         } else {
             println!("Unable to seek to address {:X} in getval()", addr);
+            None
+        }
+    }
+
+    pub fn get_region_contents(&mut self, region_key: &str) -> Option<Vec<u8>> {
+        if let Some(region) = self.regions.get(region_key) {
+            self.getval(region.start_addr, region.size)
+        } else {
+            println!("Unable to find region {}", region_key);
             None
         }
     }
@@ -113,7 +124,7 @@ impl NoviMem {
                 for (key, region) in self.regions.iter() {
                     // Fill the buffer with this module's memory by seeking to the start address first
                     if memfile.seek(SeekFrom::Start(region.start_addr)).is_ok() {
-                        let mut reader = BufReader::with_capacity(region.size as usize, &memfile);
+                        let mut reader = BufReader::with_capacity(region.size, &memfile);
                         if let Ok(buf) = reader.fill_buf() {
                             re.find_iter(buf).for_each(|m| {
                                 results.push(SearchResult {
@@ -185,7 +196,7 @@ impl NoviMem {
                     let region = MemRegion {
                         start_addr: start,
                         end_addr: end,
-                        size: end - start,
+                        size: (end - start) as usize,
                         readable: &cap[3] == "r",
                         writeable: &cap[4] == "w",
                         execable: &cap[5] == "x",
@@ -204,6 +215,7 @@ impl NoviMem {
             }
         }
         // We only care about modules that are marked as executable
-        self.regions.retain(|_, x| x.readable && x.writeable);
+        self.regions
+            .retain(|name, r| name != "[stack]" && r.readable && r.writeable);
     }
 }

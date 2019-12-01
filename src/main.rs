@@ -1,6 +1,6 @@
 mod novimem;
 
-use novimem::{proc_search::ProcSearch, NoviMem};
+use novimem::{mem_image::MemImage, proc_search::ProcSearch, NoviMem};
 use std::io::{stdin, stdout, Write};
 use std::{env, i32, u8};
 
@@ -32,11 +32,8 @@ fn do_searchu8(mem: &mut NoviMem, cmd: &mut Vec<&str>) {
     }
 }
 
-fn print_img(mem: &mut NoviMem) {
-
-}
-
 fn interactive(mut mem: &mut NoviMem) {
+    let mut m_img = MemImage::new();
     loop {
         print!("NM>");
         stdout().flush().unwrap();
@@ -44,13 +41,34 @@ fn interactive(mut mem: &mut NoviMem) {
         match stdin().read_line(&mut input) {
             Ok(n) => {
                 // Get the command from the input string
-                let mut parsed: Vec<&str> = input[..n - 1].split(" ").collect();
+                let mut parsed: Vec<&str> = input[..n - 1].split(' ').collect();
                 parsed.reverse();
                 if let Some(cmd) = parsed.pop() {
                     match cmd {
                         "i" => do_searchi32(&mut mem, &mut parsed),
                         "b" => do_searchu8(&mut mem, &mut parsed),
-                        "p" => print_img(mem),
+                        "p" => mem.print_results(),
+                        "ru8" => {
+                            if let Some(addr_str) = parsed.pop() {
+                                if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
+                                    if let Some(val) = mem.getval(addr, 1) {
+                                        println!("{}", u8::from_le_bytes([val[0]]));
+                                    }
+                                }
+                            }
+                        }
+                        "wu8" => {
+                            if let Some(addr_str) = parsed.pop() {
+                                if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
+                                    if let Some(val_str) = parsed.pop() {
+                                        if let Ok(val) = u8::from_str_radix(val_str, 10) {
+                                            mem.setval(addr, &[val]);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        "img" => m_img.print_img(mem),
                         "x" => break,
                         _ => println!("Unknown command {}", cmd),
                     };
@@ -66,8 +84,30 @@ fn main() {
     if let Some(search_str) = args.get(1) {
         if let Some(procs) = ProcSearch::search(search_str) {
             if !procs.is_empty() {
-                let (name, pid) = &procs[0];
-                println!("Using PID {} {}, found {} total", pid, name, procs.len());
+                println!("Found {} total", procs.len());
+                let (name, pid) = if procs.len() > 1 {
+                    for (idx, (name, pid)) in procs.iter().enumerate() {
+                        println!("{}:\t{}\t{}", idx, name, pid);
+                    }
+                    print!("Choose pid:");
+                    stdout().flush().unwrap();
+                    let mut input = String::new();
+                    if let Ok(n) = stdin().read_line(&mut input) {
+                        if let Ok(choice) = usize::from_str_radix(&input[..n - 1], 10) {
+                            if choice <= procs.len() {
+                                &procs[choice]
+                            } else {
+                                panic!("Chose invalid index");
+                            }
+                        } else {
+                            panic!("Unable to parse input as int");
+                        }
+                    } else {
+                        panic! {"I/O error"};
+                    }
+                } else {
+                    &procs[0]
+                };
                 let mut m = NoviMem::new(*pid);
                 interactive(&mut m);
             }
