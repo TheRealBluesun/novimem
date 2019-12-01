@@ -1,5 +1,5 @@
 use regex::Regex;
-use std::{fs, fs::File, fs::OpenOptions, io::Read, u32};
+use std::{fs, fs::OpenOptions, io::Read, u32};
 
 pub struct ProcSearch {}
 
@@ -12,6 +12,7 @@ impl ProcSearch {
             let p = path.unwrap().path();
             let path_str = p.into_os_string().into_string().unwrap();
             if let Some(cap) = re.captures(&path_str) {
+                // PIDs are always base 10
                 if let Ok(pid) = u32::from_str_radix(&cap[1], 10) {
                     let pname = ProcSearch::get_pname(pid);
                     if pname.contains(procname) {

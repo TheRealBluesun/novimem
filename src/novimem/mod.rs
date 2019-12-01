@@ -33,9 +33,11 @@ impl MemRegion {
     }
 }
 
+#[derive(Debug, Clone)]
 struct SearchResult {
     region_key: String,
     offset: usize,
+    address: u64,
 }
 
 pub struct NoviMem {
@@ -57,23 +59,35 @@ impl NoviMem {
         m
     }
 
-    // pub fn search_num<T>(&self, val: T) -> Vec<usize> where T: Bytes {
-    //     self.search(&val.to_le_bytes())
-    // }
-
     pub fn setval(&mut self, addr: u64, val: &[u8]) -> bool {
         self.memfile.seek(SeekFrom::Start(addr)).unwrap();
         self.memfile.write(val).unwrap() == val.len()
+    }
+
+    pub fn getval(&mut self, addr: u64, size: usize) -> Option<Vec<u8>> {
+        if self.memfile.seek(SeekFrom::Start(addr)).is_ok() {
+            let mut reader = BufReader::with_capacity(size as usize, &self.memfile);
+            if let Ok(buf) = reader.fill_buf() {
+                Some(buf.to_vec())
+            } else {
+                println!(
+                    "Unable to fill buffer in getval() at address {} with size {}",
+                    addr, size
+                );
+                None
+            }
+        } else {
+            println!("Unable to seek to address {:X} in getval()", addr);
+            None
+        }
     }
 
     pub fn print_results(&self) {
         self.results.iter().for_each(|result| {
             if let Some(region) = self.regions.get(&result.region_key) {
                 println!(
-                    "{:X} ({} + {:X})",
-                    region.start_addr + result.offset as u64,
-                    region.name,
-                    result.offset
+                    "\t{:X} ({} + {:X})",
+                    result.address, region.name, result.offset
                 );
             }
         });
@@ -88,28 +102,49 @@ impl NoviMem {
             .for_each(|b| valstr.push_str(&format!("\\x{:02x}", b).to_string()));
         println!("Searching for {}", valstr);
         let mut builder = RegexBuilder::new(&valstr.to_string());
-        builder.unicode(false);
-        builder.dot_matches_new_line(true);
-        builder.case_insensitive(false);
+        builder
+            .unicode(false)
+            .dot_matches_new_line(true)
+            .case_insensitive(false);
         if let Ok(re) = builder.build() {
             let mut results = Vec::new();
-            for (key, region) in self.regions.iter() {
-                // Fill the buffer with this module's memory by seeking to the start address first
-                memfile.seek(SeekFrom::Start(region.start_addr)).unwrap();
-                let mut reader = BufReader::with_capacity(region.size as usize, &memfile);
-                if let Ok(buf) = reader.fill_buf() {
-                    re.find_iter(buf).for_each(|m| {
-                        results.push(SearchResult {
-                            region_key: key.to_string(),
-                            offset: m.start(),
-                        })
-                    });
-                } else {
-                    println!(
-                        "Unable to fill buffer from memory region {} :-(",
-                        region.name
-                    );
+            // If this is a new search, look through everything
+            if self.results.is_empty() {
+                for (key, region) in self.regions.iter() {
+                    // Fill the buffer with this module's memory by seeking to the start address first
+                    if memfile.seek(SeekFrom::Start(region.start_addr)).is_ok() {
+                        let mut reader = BufReader::with_capacity(region.size as usize, &memfile);
+                        if let Ok(buf) = reader.fill_buf() {
+                            re.find_iter(buf).for_each(|m| {
+                                results.push(SearchResult {
+                                    region_key: key.to_string(),
+                                    offset: m.start(),
+                                    address: region.start_addr + m.start() as u64,
+                                })
+                            });
+                        } else {
+                            println!(
+                                "Unable to fill buffer from memory region {} :-(",
+                                region.name
+                            );
+                        }
+                    } else {
+                        println!(
+                            "Unable to seek to region {} start address {:X}",
+                            region.name, region.start_addr
+                        );
+                    }
                 }
+            } else {
+                // Otherwise, only look through our existing results
+                let results_cpy = self.results.clone();
+                results_cpy.iter().for_each(|search_result| {
+                    if let Some(read_val) = self.getval(search_result.address, val.len()) {
+                        if read_val == val {
+                            results.push(search_result.to_owned());
+                        }
+                    }
+                })
             }
             self.results = results;
         } else {
