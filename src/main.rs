@@ -2,7 +2,7 @@ mod novimem;
 
 use novimem::{mem_image::MemImage, proc_search::ProcSearch, NoviMem};
 use std::io::{stdin, stdout, Write};
-use std::{env, i32, u8};
+use std::{env, i32, mem::size_of, u8};
 
 fn do_search(mem: &mut NoviMem, val: &[u8]) {
     let num_results = mem.search(val);
@@ -32,6 +32,35 @@ fn do_searchu8(mem: &mut NoviMem, cmd: &mut Vec<&str>) {
     }
 }
 
+macro_rules! readval {
+    ($type: ty, $parsed: ident, $mem: ident) => {
+        if let Some(addr_str) = $parsed.pop() {
+            if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
+                if let Some(val) = $mem.getval(addr, size_of::<u32>()) {
+                    // TODO: Is there a cleaner way to do this? (slice to fixed size array)
+                    let mut arr = [0u8; size_of::<$type>()];
+                    arr.copy_from_slice(&val[..size_of::<$type>()]);
+                    println!("{}", <$type>::from_le_bytes(arr));
+                }
+            }
+        }
+    };
+}
+
+macro_rules! writeval {
+    ($type: ty, $parsed: ident, $mem: ident) => {
+        if let Some(addr_str) = $parsed.pop() {
+            if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
+                if let Some(val_str) = $parsed.pop() {
+                    if let Ok(val) = <$type>::from_str_radix(val_str, 10) {
+                        $mem.setval(addr, &val.to_le_bytes());
+                    }
+                }
+            }
+        }
+    };
+}
+
 fn interactive(mut mem: &mut NoviMem) {
     let mut m_img = MemImage::new();
     loop {
@@ -48,26 +77,15 @@ fn interactive(mut mem: &mut NoviMem) {
                         "i" => do_searchi32(&mut mem, &mut parsed),
                         "b" => do_searchu8(&mut mem, &mut parsed),
                         "p" => mem.print_results(),
-                        "ru8" => {
-                            if let Some(addr_str) = parsed.pop() {
-                                if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
-                                    if let Some(val) = mem.getval(addr, 1) {
-                                        println!("{}", u8::from_le_bytes([val[0]]));
-                                    }
-                                }
-                            }
-                        }
-                        "wu8" => {
-                            if let Some(addr_str) = parsed.pop() {
-                                if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
-                                    if let Some(val_str) = parsed.pop() {
-                                        if let Ok(val) = u8::from_str_radix(val_str, 10) {
-                                            mem.setval(addr, &[val]);
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        // Reading/writing values
+                        "ru8" => readval!(u8, parsed, mem),
+                        "ri8" => readval!(i8, parsed, mem),
+                        "ri32" => readval!(i32, parsed, mem),
+                        "ru32" => readval!(u32, parsed, mem),
+                        "wu8" => writeval!(u8, parsed, mem),
+                        "wi8" => writeval!(i8, parsed, mem),
+                        "wu32" => writeval!(u32, parsed, mem),
+                        "wi32" => writeval!(i32, parsed, mem),
                         "img" => m_img.print_img(mem),
                         "x" => break,
                         _ => println!("Unknown command {}", cmd),
