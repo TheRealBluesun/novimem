@@ -1,14 +1,7 @@
 use regex::Regex;
-use std::{collections::HashMap, fs, fs::File, fs::OpenOptions, io::Read, u32};
+use std::{fs, fs::File, fs::OpenOptions, io::Read, u32};
 
-struct Proc {
-    name: String,
-    pid: u32,
-}
-
-pub struct ProcSearch {
-    pids: Vec<u32>,
-}
+pub struct ProcSearch {}
 
 impl ProcSearch {
     pub fn search(procname: &str) -> Option<Vec<u32>> {
@@ -27,7 +20,7 @@ impl ProcSearch {
                 }
             }
         }
-        if resvec.len() > 0 {
+        if !resvec.is_empty() {
             Some(resvec)
         } else {
             None

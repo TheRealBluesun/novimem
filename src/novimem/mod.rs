@@ -1,6 +1,7 @@
 pub mod proc_search;
 
 use std::{
+    collections::HashMap,
     fs::File,
     fs::OpenOptions,
     io::{prelude::*, BufReader, Seek, SeekFrom, Write},
@@ -27,16 +28,20 @@ impl MemRegion {
             self.start_addr, self.size, self.end_addr
         ))
         .unwrap();
-        f.write(buf).unwrap();
+        f.write_all(buf).unwrap();
         f.flush().unwrap();
     }
 }
 
+struct SearchResult {
+    region_key: String,
+    offset: usize,
+}
+
 pub struct NoviMem {
     pid: u32,
-    pname: String,
-    regions: Vec<MemRegion>,
-    results: Option<Vec<usize>>,
+    regions: HashMap<String, MemRegion>,
+    results: Vec<SearchResult>,
     memfile: File,
 }
 
@@ -44,9 +49,8 @@ impl NoviMem {
     pub fn new(pid: u32) -> NoviMem {
         let mut m = NoviMem {
             pid,
-            pname: String::new(), //NoviMem::get_pname(pid),
-            regions: Vec::new(),
-            results: None,
+            regions: HashMap::<String, MemRegion>::new(),
+            results: Vec::new(),
             memfile: NoviMem::open_mem(pid),
         };
         m.parse_maps();
@@ -62,48 +66,56 @@ impl NoviMem {
         self.memfile.write(val).unwrap() == val.len()
     }
 
-    pub fn search(&self, val: &[u8]) -> Option<Vec<usize>> {
+    pub fn print_results(&self) {
+        self.results.iter().for_each(|result| {
+            if let Some(region) = self.regions.get(&result.region_key) {
+                println!(
+                    "{:X} ({} + {:X})",
+                    region.start_addr + result.offset as u64,
+                    region.name,
+                    result.offset
+                );
+            }
+        });
+    }
+
+    pub fn search(&mut self, val: &[u8]) -> usize {
+        // Explicitly use the bytes regex
         use regex::bytes::RegexBuilder;
         let mut memfile = self.memfile.try_clone().unwrap();
         let mut valstr = String::new();
-        for b in val {
-            valstr.push_str(&format!("\\x{:02x}", b).to_string());
-        }
-
+        val.iter()
+            .for_each(|b| valstr.push_str(&format!("\\x{:02x}", b).to_string()));
+        println!("Searching for {}", valstr);
         let mut builder = RegexBuilder::new(&valstr.to_string());
         builder.unicode(false);
         builder.dot_matches_new_line(true);
         builder.case_insensitive(false);
-
-        let re = builder.build().unwrap();
-
-        println!("Searching for {}", valstr);
-        let mut results = Vec::new();
-
-        self.regions.iter().for_each(|region| {
-            // Fill the buffer with this module's memory by seeking to the start address first
-            memfile.seek(SeekFrom::Start(region.start_addr)).unwrap();
-            let mut reader = BufReader::with_capacity(region.size as usize, &memfile);
-            let buf = reader.fill_buf().unwrap();
-            let search_data = buf.to_vec();
-            let matches = re.find_iter(&search_data);
-
-            for m in matches {
-                results.push(m.start() + region.start_addr as usize);
-                println!(
-                    "Found result at {:X} ({:X} + {:X}) in '{}'",
-                    m.start() + region.start_addr as usize,
-                    region.start_addr,
-                    m.start(),
-                    region.name,
-                );
+        if let Ok(re) = builder.build() {
+            let mut results = Vec::new();
+            for (key, region) in self.regions.iter() {
+                // Fill the buffer with this module's memory by seeking to the start address first
+                memfile.seek(SeekFrom::Start(region.start_addr)).unwrap();
+                let mut reader = BufReader::with_capacity(region.size as usize, &memfile);
+                if let Ok(buf) = reader.fill_buf() {
+                    re.find_iter(buf).for_each(|m| {
+                        results.push(SearchResult {
+                            region_key: key.to_string(),
+                            offset: m.start(),
+                        })
+                    });
+                } else {
+                    println!(
+                        "Unable to fill buffer from memory region {} :-(",
+                        region.name
+                    );
+                }
             }
-        });
-        if !results.is_empty() {
-            Some(results)
+            self.results = results;
         } else {
-            None
+            println!("Unable to build search :-(");
         }
+        self.results.len()
     }
 
     fn open_mem(pid: u32) -> File {
@@ -112,21 +124,7 @@ impl NoviMem {
             .write(true)
             .create(false)
             .open(format!("/proc/{}/mem", pid))
-            // .open("/proc/self/mem")
-            .expect(&format!("Unable to open memory for pid {}", pid))
-    }
-
-    fn get_pname(pid: u32) -> String {
-        let mut retstr = String::new();
-        OpenOptions::new()
-            .read(true)
-            .write(false)
-            .create(false)
-            .open(format!("/proc/{}/cmdline", pid))
-            .expect("Unable to open pname file")
-            .read_to_string(&mut retstr)
-            .unwrap();
-        retstr
+            .unwrap_or_else(|_| panic!("Unable to open memory for pid {}", pid))
     }
 
     fn parse_maps(&mut self) {
@@ -136,7 +134,6 @@ impl NoviMem {
             .write(false)
             .create(false)
             .open(format!("/proc/{}/maps", self.pid))
-            // .open("/proc/self/maps")
             .expect("Unable to open file");
 
         // Parse the maps file to find regions of interest
@@ -146,10 +143,8 @@ impl NoviMem {
     .unwrap();
         for line in BufReader::new(mapsfile).lines() {
             let resline = line.unwrap();
-            // println!("{}", &resline );
             if let Some(cap) = re.captures(resline.as_str()) {
                 if cap.len() > 0 {
-                    // println!("{:?}", &cap);
                     let start = u64::from_str_radix(&cap[1], 16).unwrap();
                     let end = u64::from_str_radix(&cap[2], 16).unwrap();
                     let region = MemRegion {
@@ -167,13 +162,13 @@ impl NoviMem {
                             String::from("")
                         },
                     };
-                    self.regions.push(region);
+                    self.regions.insert(region.name.to_string(), region);
                 }
             } else {
                 println!("Failed to parse {}", &resline)
             }
         }
         // We only care about modules that are marked as executable
-        self.regions.retain(|x| x.readable && x.writeable);
+        self.regions.retain(|_, x| x.readable && x.writeable);
     }
 }
