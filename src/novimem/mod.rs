@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string};
 use std::{
     collections::HashMap,
-    fs,
     fs::read,
-    fs::write,
     fs::File,
     fs::OpenOptions,
     io::{prelude::*, BufReader, Seek, SeekFrom, Write},
@@ -58,8 +56,8 @@ pub struct NoviMem {
 impl NoviMem {
     pub fn new(pid: u32, pname: String) -> NoviMem {
         let mut m = NoviMem {
-            pid: pid,
-            pname: pname,
+            pid,
+            pname,
             regions: HashMap::<String, MemRegion>::new(),
             searches: HashMap::<String, Vec<SearchResult>>::new(),
             results: Vec::new(),
@@ -67,6 +65,12 @@ impl NoviMem {
         };
         m.parse_maps();
         m
+    }
+
+    pub fn print_modules(&self) {
+        self.regions.iter().for_each(|(name, region)| {
+            println!("{:X}:{:X}\t{}", region.start_addr, region.end_addr, name)
+        });
     }
 
     pub fn save_searches_to_file(&self) {
@@ -78,7 +82,10 @@ impl NoviMem {
                 Ok(mut f) => {
                     f.write(json.to_string().as_bytes()).unwrap();
                 }
-                Err(e) => println!("Unable to create file '{}' in save_searches_to_file(): {}", &fname, e),
+                Err(e) => println!(
+                    "Unable to create file '{}' in save_searches_to_file(): {}",
+                    &fname, e
+                ),
             };
         }
     }
@@ -113,6 +120,10 @@ impl NoviMem {
         } else {
             false
         }
+    }
+
+    pub fn clear_results(&mut self) {
+        self.results.clear();
     }
 
     pub fn print_searches(&self) {
@@ -234,48 +245,69 @@ impl NoviMem {
     }
 
     fn parse_maps(&mut self) {
-        use regex::Regex;
+        use regex::{Regex, RegexBuilder};
         let mapsfile = OpenOptions::new()
             .read(true)
             .write(false)
             .create(false)
             .open(format!("/proc/{}/maps", self.pid))
             .expect("Unable to open file");
-
+        let regex_str = 
+            //address 1,2                    perms 3,4,5,6            offset           dev                           inode     pathname 7
+            r"([0-9A-Fa-f]+)-([0-9A-Fa-f]+) ([-r])([-w])([-x])([-ps]) (?:[0-9A-Fa-f]+) (?:[0-9A-Fa-f]+:[0-9A-Fa-f]+) (?:\d+)\s+(.*)?";
+        let mut builder = RegexBuilder::new(regex_str);
+        builder
+            .unicode(true)
+            .dot_matches_new_line(true)
+            .case_insensitive(false);
         // Parse the maps file to find regions of interest
-        let re = Regex::new(
-        //address                       perms                     offset           dev                           inode     pathname
-        r"([0-9A-Fa-f]+)-([0-9A-Fa-f]+) ([-r])([-w])([-x])([-ps]) (?:[0-9A-Fa-f]+) (?:[0-9A-Fa-f]+:[0-9A-Fa-f]+) (?:\d*)\s+(.+$)?")
-    .unwrap();
-        for line in BufReader::new(mapsfile).lines() {
-            let resline = line.unwrap();
-            if let Some(cap) = re.captures(resline.as_str()) {
-                if cap.len() > 0 {
-                    let start = u64::from_str_radix(&cap[1], 16).unwrap();
-                    let end = u64::from_str_radix(&cap[2], 16).unwrap();
-                    let region = MemRegion {
-                        start_addr: start,
-                        end_addr: end,
-                        size: (end - start) as usize,
-                        readable: &cap[3] == "r",
-                        writeable: &cap[4] == "w",
-                        execable: &cap[5] == "x",
-                        private: &cap[6] == "p",
-                        shared: &cap[6] == "s",
-                        name: if let Some(n) = cap.get(7) {
-                            n.as_str().to_string()
-                        } else {
-                            String::from("[anon]")
-                        },
-                    };
-                    self.regions.insert(region.name.to_string(), region);
+        match builder.build() {
+            Ok(re) => {
+            for line in BufReader::new(mapsfile).lines() {
+                let resline = line.unwrap();
+                if let Some(cap) = re.captures(resline.as_str()) {
+                    if cap.len() > 0 {
+                        let start = u64::from_str_radix(&cap[1], 16).unwrap();
+                        let end = u64::from_str_radix(&cap[2], 16).unwrap();
+                        let region = MemRegion {
+                            start_addr: start,
+                            end_addr: end,
+                            size: (end - start) as usize,
+                            readable: &cap[3] == "r",
+                            writeable: &cap[4] == "w",
+                            execable: &cap[5] == "x",
+                            private: &cap[6] == "p",
+                            shared: &cap[6] == "s",
+                            name: if let Some(n) = cap.get(7) {
+                                let name = n.as_str().to_string();
+                                if name.is_empty() {
+                                    format!("{:X}", start)
+                                } else {
+                                    name.replace('\0', "")
+                                }
+                            } else {
+                                println!("Failed to capture module name {}", resline);
+                                String::from("[anon]")
+                            },
+                        };
+                        let name_key = region.name.clone();
+                        if self.regions.insert(region.name.to_string(), region).is_some() {
+                            println!("Inserted duplicate region {}", name_key);
+                        }
+                    } else {
+                        println!("Did not include maps line {}", resline);
+                    }
+                    println!("'{}'\thas {} matches", resline, cap.len());
+                } else {
+                    println!("Failed to parse {}", &resline)
                 }
-            } else {
-                println!("Failed to parse {}", &resline)
             }
         }
+        Err(e) =>   println!("ERR: Unable to build regex in parse_maps(): {}", e)
+        
         // We only care about modules that are marked as executable
-        self.regions
-            .retain(|name, r| name != "[stack]" && r.readable && r.writeable);
+    }
+    self.regions
+        .retain(|_, r| r.readable && r.writeable);
     }
 }

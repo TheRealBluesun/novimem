@@ -2,33 +2,13 @@ mod novimem;
 
 use novimem::{mem_image::MemImage, proc_search::ProcSearch, NoviMem};
 use std::io::{stdin, stdout, Write};
-use std::{env, i32, mem::size_of, u8};
+use std::{env, i32, f32, mem::size_of, u8};
 
 fn do_search(mem: &mut NoviMem, val: &[u8]) {
     let num_results = mem.search(val);
     println!("Found {} results", num_results);
     if num_results <= 10 {
         mem.print_results();
-    }
-}
-
-fn do_searchi32(mem: &mut NoviMem, cmd: &mut Vec<&str>) {
-    if let Some(search_str) = cmd.pop() {
-        if let Ok(search_int) = i32::from_str_radix(search_str, 10) {
-            do_search(mem, &search_int.to_le_bytes())
-        } else {
-            println!("Unable to parse input as u8: '{}'", search_str);
-        }
-    }
-}
-
-fn do_searchu8(mem: &mut NoviMem, cmd: &mut Vec<&str>) {
-    if let Some(search_str) = cmd.pop() {
-        if let Ok(search_int) = u8::from_str_radix(search_str, 10) {
-            do_search(mem, &search_int.to_le_bytes())
-        } else {
-            println!("Unable to parse input as i32: '{}'", search_str);
-        }
     }
 }
 
@@ -52,7 +32,7 @@ macro_rules! writeval {
         if let Some(addr_str) = $parsed.pop() {
             if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
                 if let Some(val_str) = $parsed.pop() {
-                    if let Ok(val) = <$type>::from_str_radix(val_str, 10) {
+                    if let Ok(val) = val_str.parse::<$type>() {
                         $mem.setval(addr, &val.to_le_bytes());
                     } else {
                         println!("Unable to parse {} as value", val_str);
@@ -65,6 +45,19 @@ macro_rules! writeval {
             }
         } else {
             println!("Additional arguments required (address)");
+        }
+    };
+}
+
+
+macro_rules! search {
+    ($type: ty, $parsed: ident, $mem: ident) => {
+        if let Some(search_str) = $parsed.pop() {
+            if let Ok(search_int) = search_str.parse::<$type>() {
+                do_search($mem, &search_int.to_le_bytes())
+            } else {
+                println!("Unable to parse input as u8: '{}'", search_str);
+            }
         }
     };
 }
@@ -82,9 +75,15 @@ fn interactive(mut mem: &mut NoviMem) {
                 parsed.reverse();
                 if let Some(cmd) = parsed.pop() {
                     match cmd {
-                        "i" => do_searchi32(&mut mem, &mut parsed),
-                        "b" => do_searchu8(&mut mem, &mut parsed),
+                        "c" => mem.clear_results(),
+                        "b" => search!(u8, parsed, mem),
+                        "s" => search!(i16, parsed, mem),
+                        "us" => search!(u16, parsed, mem),
+                        "i" => search!(i32, parsed, mem),
+                        "u" => search!(u32, parsed, mem),
+                        "f" => search!(f32, parsed, mem),
                         "p" => mem.print_results(),
+                        "pm" => mem.print_modules(),
                         "save" => {
                             if let Some(name) = parsed.pop() {
                                 mem.save_search(name.to_string());
@@ -121,11 +120,12 @@ fn interactive(mut mem: &mut NoviMem) {
                         "wi16" => writeval!(i16, parsed, mem),
                         "wu32" => writeval!(u32, parsed, mem),
                         "wi32" => writeval!(i32, parsed, mem),
+                        "wf" => writeval!(f32, parsed, mem),
                         "img" => m_img.print_img(mem),
                         "x" => {
                             mem.save_searches_to_file();
                             break;
-                        },
+                        }
                         _ => println!("Unknown command {}", cmd),
                     };
                 }
