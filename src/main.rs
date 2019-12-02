@@ -2,7 +2,7 @@ mod novimem;
 
 use novimem::{mem_image::MemImage, proc_search::ProcSearch, NoviMem};
 use std::io::{stdin, stdout, Write};
-use std::{env, i32, f32, mem::size_of, u8};
+use std::{env, f32, i32, mem::size_of, u8};
 
 fn do_search(mem: &mut NoviMem, val: &[u8]) {
     let num_results = mem.search(val);
@@ -48,7 +48,6 @@ macro_rules! writeval {
         }
     };
 }
-
 
 macro_rules! search {
     ($type: ty, $parsed: ident, $mem: ident) => {
@@ -177,4 +176,46 @@ fn main() {
     } else {
         println!("ERR: Requires process name");
     }
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+use std::process;
+#[test]
+fn test_search() {
+    let pid = process::id();
+    let mut m = NoviMem::new(pid, String::from("novimem"));
+    let mut x = 0xDEADBEEFDEADBEEFu64;
+    let mut tries = 0;
+    while m.search(&x.to_le_bytes()) > 10 {
+        x += 1;
+        tries += 1;
+        if tries > 1000 {
+            m.print_results();
+            assert!(false, format!("Failed to find value after {} tries", tries));
+            break;
+        }
+    }
+    let old_results = m.results();
+    let newval = 0xDEADC0DEDEADC0DEu64;
+    old_results.iter().for_each(|result| {
+        println!("Writing to address {:X}", *result);
+        // m.setval(*result, &newval.to_le_bytes());
+    });
+
+    m.clear_results();
+    while m.search(&newval.to_le_bytes()) > 10 {
+        tries += 1;
+        if tries > 1000 {
+            m.print_results();
+            assert!(false, format!("Failed to find value after {} tries", tries));
+            break;
+        }
+    }
+    // m.results().iter().for_each(|result| {
+    //     assert!(old_results.contains(result));
+    // });
+
+    m.print_results();
+    assert!(false);
 }
