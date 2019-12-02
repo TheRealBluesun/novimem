@@ -54,9 +54,17 @@ macro_rules! writeval {
                 if let Some(val_str) = $parsed.pop() {
                     if let Ok(val) = <$type>::from_str_radix(val_str, 10) {
                         $mem.setval(addr, &val.to_le_bytes());
+                    } else {
+                        println!("Unable to parse {} as value", val_str);
                     }
+                } else {
+                    println!("Additional arguments required (value)")
                 }
+            } else {
+                println!("Unable to parse {} as address", addr_str);
             }
+        } else {
+            println!("Additional arguments required (address)");
         }
     };
 }
@@ -77,22 +85,52 @@ fn interactive(mut mem: &mut NoviMem) {
                         "i" => do_searchi32(&mut mem, &mut parsed),
                         "b" => do_searchu8(&mut mem, &mut parsed),
                         "p" => mem.print_results(),
+                        "save" => {
+                            if let Some(name) = parsed.pop() {
+                                mem.save_search(name.to_string());
+                                mem.save_searches_to_file();
+                            }
+                        }
+                        "restore" => {
+                            if let Some(name) = parsed.pop() {
+                                if !mem.restore_search(name.to_string()) {
+                                    println!("Saved search '{}' not found", &name);
+                                }
+                            }
+                        }
+                        "delete" => {
+                            if let Some(name) = parsed.pop() {
+                                if mem.delete_search(name.to_string()) {
+                                    println!("Saved search '{}' deleted", &name);
+                                } else {
+                                    println!("Saved search '{}' not found", &name);
+                                }
+                            }
+                        }
+                        "saved" => mem.print_searches(),
                         // Reading/writing values
                         "ru8" => readval!(u8, parsed, mem),
                         "ri8" => readval!(i8, parsed, mem),
+                        "ru16" => readval!(u16, parsed, mem),
+                        "ri16" => readval!(i16, parsed, mem),
                         "ri32" => readval!(i32, parsed, mem),
                         "ru32" => readval!(u32, parsed, mem),
                         "wu8" => writeval!(u8, parsed, mem),
                         "wi8" => writeval!(i8, parsed, mem),
+                        "wu16" => writeval!(u16, parsed, mem),
+                        "wi16" => writeval!(i16, parsed, mem),
                         "wu32" => writeval!(u32, parsed, mem),
                         "wi32" => writeval!(i32, parsed, mem),
                         "img" => m_img.print_img(mem),
-                        "x" => break,
+                        "x" => {
+                            mem.save_searches_to_file();
+                            break;
+                        },
                         _ => println!("Unknown command {}", cmd),
                     };
                 }
             }
-            Err(error) => println!("error: {}", error),
+            Err(error) => println!("error reading stdin: {}", error),
         }
     }
 }
@@ -126,7 +164,11 @@ fn main() {
                 } else {
                     &procs[0]
                 };
-                let mut m = NoviMem::new(*pid);
+                // remove null chars
+                let name = name.replace('\0', "");
+                let mut m = NoviMem::new(*pid, String::from(&name));
+                println!("loaded proc {}", &name);
+                m.load_searches_from_file();
                 interactive(&mut m);
             }
         } else {

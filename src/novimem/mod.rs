@@ -1,8 +1,13 @@
 pub mod mem_image;
 pub mod proc_search;
 
+use serde::{Deserialize, Serialize};
+use serde_json::{from_str, to_string};
 use std::{
     collections::HashMap,
+    fs,
+    fs::read,
+    fs::write,
     fs::File,
     fs::OpenOptions,
     io::{prelude::*, BufReader, Seek, SeekFrom, Write},
@@ -34,7 +39,7 @@ impl MemRegion {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SearchResult {
     region_key: String,
     offset: usize,
@@ -43,21 +48,75 @@ struct SearchResult {
 
 pub struct NoviMem {
     pid: u32,
+    pname: String,
     regions: HashMap<String, MemRegion>,
+    searches: HashMap<String, Vec<SearchResult>>,
     results: Vec<SearchResult>,
     memfile: File,
 }
 
 impl NoviMem {
-    pub fn new(pid: u32) -> NoviMem {
+    pub fn new(pid: u32, pname: String) -> NoviMem {
         let mut m = NoviMem {
-            pid,
+            pid: pid,
+            pname: pname,
             regions: HashMap::<String, MemRegion>::new(),
+            searches: HashMap::<String, Vec<SearchResult>>::new(),
             results: Vec::new(),
             memfile: NoviMem::open_mem(pid),
         };
         m.parse_maps();
         m
+    }
+
+    pub fn save_searches_to_file(&self) {
+        if !self.searches.is_empty() {
+            let json = serde_json::to_string(&self.searches).unwrap();
+            // write(format!("{}.searches", self.pname), json).unwrap();
+            let fname = format!("./{}.searches", self.pname);
+            match File::create(&fname.to_string()) {
+                Ok(mut f) => {
+                    f.write(json.to_string().as_bytes()).unwrap();
+                }
+                Err(e) => println!("Unable to create file '{}' in save_searches_to_file(): {}", &fname, e),
+            };
+        }
+    }
+
+    pub fn load_searches_from_file(&mut self) {
+        if let Ok(f) = read(format!("./{}.searches", self.pname)) {
+            let json: String = String::from_utf8_lossy(&f).to_string();
+            if !json.is_empty() {
+                self.searches = serde_json::from_str(&json).unwrap();
+            }
+        }
+    }
+
+    pub fn save_search(&mut self, name: String) {
+        self.searches.insert(name, self.results.to_owned());
+        self.results.clear();
+        self.save_searches_to_file()
+    }
+
+    pub fn restore_search(&mut self, name: String) -> bool {
+        if let Some(result) = self.searches.get(&name) {
+            self.results = result.to_vec();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn delete_search(&mut self, name: String) -> bool {
+        if self.searches.remove(&name).is_some() {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn print_searches(&self) {
+        self.searches.keys().for_each(|name| println!("\t{}", name));
     }
 
     pub fn setval(&mut self, addr: u64, val: &[u8]) -> bool {
@@ -102,6 +161,7 @@ impl NoviMem {
                 );
             }
         });
+        println!("\t{} results", self.results.len());
     }
 
     pub fn search(&mut self, val: &[u8]) -> usize {
@@ -205,7 +265,7 @@ impl NoviMem {
                         name: if let Some(n) = cap.get(7) {
                             n.as_str().to_string()
                         } else {
-                            String::from("")
+                            String::from("[anon]")
                         },
                     };
                     self.regions.insert(region.name.to_string(), region);
