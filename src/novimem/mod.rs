@@ -309,12 +309,10 @@ impl NoviMem {
                                     String::from("[anon]")
                                 },
                             };
-                            let name_key = region.name.clone();
                             self.regions.push(region);
                         } else {
                             println!("Did not include maps line {}", resline);
                         }
-                        println!("'{}'\thas {} matches", resline, cap.len());
                     } else {
                         println!("Failed to parse {}", &resline)
                     }
@@ -322,6 +320,7 @@ impl NoviMem {
             }
             Err(e) => println!("ERR: Unable to build regex in parse_maps(): {}", e), // We only care about modules that are marked as executable
         }
-        self.regions.retain(|r| r.readable && r.writeable);
+        self.regions
+            .retain(|r| r.readable && r.writeable && r.name != "[stack]");
     }
 }
