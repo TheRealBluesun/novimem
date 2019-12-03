@@ -16,26 +16,30 @@ impl MemImage {
     pub fn print_img(&mut self, mem: &mut NoviMem, addr: u64, size: usize) {
         // Get the block of memory we care about
         if let Some(mem_block) = mem.getval(addr, size) {
+            if self.prev_snapshot.len() != size {
+                self.prev_snapshot.clear();
+            }
             let imgx = size.sqrt();
             let imgy = (size / imgx) + 1;
 
             let img = ImageBuffer::from_fn(imgx as u32, imgy as u32, |x, y| {
                 let idx = (x + (y * imgx as u32)) as usize;
-                let r = if idx >= mem_block.len() {
+                let is_oversize = idx >= mem_block.len();
+                let is_comparable = !is_oversize && !self.prev_snapshot.is_empty();
+                let r =
+                    if is_oversize || (is_comparable && self.prev_snapshot[idx] < mem_block[idx]) {
+                        255
+                    } else {
+                        mem_block[idx]
+                    };
+                let g = if is_oversize {
                     0
+                } else if is_comparable && self.prev_snapshot[idx] > mem_block[idx] {
+                    255
                 } else {
                     mem_block[idx]
                 };
-                let g = if idx >= mem_block.len() {
-                    0
-                } else {
-                    mem_block[idx]
-                };
-                let b = if idx >= mem_block.len() {
-                    0
-                } else {
-                    mem_block[idx]
-                };
+                let b = if is_oversize { 255 } else { mem_block[idx] };
                 image::Rgb([r, g, b])
             });
 
