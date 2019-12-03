@@ -58,7 +58,6 @@ impl NoviMem {
         let mut m = NoviMem {
             pid,
             pname,
-            // regions: HashMap::<String, MemRegion>::new(),
             regions: Vec::new(),
             searches: HashMap::<String, Vec<SearchResult>>::new(),
             results: Vec::new(),
@@ -270,7 +269,7 @@ impl NoviMem {
     }
 
     fn parse_maps(&mut self) {
-        use regex::{Regex, RegexBuilder};
+        use regex::RegexBuilder;
         let mapsfile = OpenOptions::new()
             .read(true)
             .write(false)

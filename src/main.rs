@@ -1,7 +1,7 @@
 mod novimem;
 use novimem::{mem_image::MemImage, proc_search::ProcSearch, NoviMem};
 use std::io::{stdin, stdout, Write};
-use std::{env, f32, i32, mem::size_of, u8, process};
+use std::{env, f32, i32, mem::size_of, process, u8};
 
 fn do_search(mem: &mut NoviMem, val: &[u8]) {
     let num_results = mem.search(val);
@@ -48,7 +48,7 @@ macro_rules! writeval {
     };
 }
 
-macro_rules! search {
+macro_rules! search_num {
     ($type: ty, $parsed: ident, $mem: ident) => {
         if let Some(search_str) = $parsed.pop() {
             if let Ok(search_int) = search_str.parse::<$type>() {
@@ -74,12 +74,12 @@ fn interactive(mut mem: &mut NoviMem) {
                 if let Some(cmd) = parsed.pop() {
                     match cmd {
                         "c" => mem.clear_results(),
-                        "b" => search!(u8, parsed, mem),
-                        "s" => search!(i16, parsed, mem),
-                        "us" => search!(u16, parsed, mem),
-                        "i" => search!(i32, parsed, mem),
-                        "u" => search!(u32, parsed, mem),
-                        "f" => search!(f32, parsed, mem),
+                        "b" => search_num!(u8, parsed, mem),
+                        "s" => search_num!(i16, parsed, mem),
+                        "us" => search_num!(u16, parsed, mem),
+                        "i" => search_num!(i32, parsed, mem),
+                        "u" => search_num!(u32, parsed, mem),
+                        "f" => search_num!(f32, parsed, mem),
                         "p" => mem.print_results(),
                         "pm" => mem.print_modules(),
                         "save" => {
