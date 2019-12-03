@@ -50,6 +50,24 @@ macro_rules! writeval {
 
 macro_rules! search_num {
     ($type: ty, $parsed: ident, $mem: ident) => {
+        if let Some(mut search_str) = $parsed.pop() {
+            let radix = if &search_str[0..2] == "0x" {
+                search_str = &search_str[2..];
+                16
+            } else {
+                10
+            };
+            if let Ok(search_int) = <$type>::from_str_radix(search_str, radix) {
+                do_search($mem, &search_int.to_le_bytes())
+            } else {
+                println!("Unable to parse input as value: '{}'", search_str);
+            }
+        }
+    };
+}
+
+macro_rules! search_float {
+    ($type: ty, $parsed: ident, $mem: ident) => {
         if let Some(search_str) = $parsed.pop() {
             if let Ok(search_int) = search_str.parse::<$type>() {
                 do_search($mem, &search_int.to_le_bytes())
@@ -79,7 +97,8 @@ fn interactive(mut mem: &mut NoviMem) {
                         "us" => search_num!(u16, parsed, mem),
                         "i" => search_num!(i32, parsed, mem),
                         "u" => search_num!(u32, parsed, mem),
-                        "f" => search_num!(f32, parsed, mem),
+                        "f" => search_float!(f32, parsed, mem),
+                        "f64" => search_float!(f64, parsed, mem),
                         "p" => mem.print_results(),
                         "pm" => mem.print_modules(),
                         "save" => {
