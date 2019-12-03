@@ -14,7 +14,7 @@ fn do_search(mem: &mut NoviMem, val: &[u8]) {
 macro_rules! readval {
     ($type: ty, $parsed: ident, $mem: ident) => {
         if let Some(addr_str) = $parsed.pop() {
-            if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
+            if let Ok(addr) = u64::from_str_radix(&addr_str.replace("0x", ""), 16) {
                 if let Some(val) = $mem.getval(addr, size_of::<u32>()) {
                     // TODO: Is there a cleaner way to do this? (slice to fixed size array)
                     let mut arr = [0u8; size_of::<$type>()];
@@ -29,7 +29,7 @@ macro_rules! readval {
 macro_rules! writeval {
     ($type: ty, $parsed: ident, $mem: ident) => {
         if let Some(addr_str) = $parsed.pop() {
-            if let Ok(addr) = u64::from_str_radix(addr_str, 16) {
+            if let Ok(addr) = u64::from_str_radix(&addr_str.replace("0x", ""), 16) {
                 if let Some(val_str) = $parsed.pop() {
                     if let Ok(val) = val_str.parse::<$type>() {
                         $mem.setval(addr, &val.to_le_bytes());
@@ -62,6 +62,8 @@ macro_rules! search_num {
             } else {
                 println!("Unable to parse input as value: '{}'", search_str);
             }
+        } else {
+            println!("Additional arguments required (address)");
         }
     };
 }
@@ -74,6 +76,8 @@ macro_rules! search_float {
             } else {
                 println!("Unable to parse input as u8: '{}'", search_str);
             }
+        } else {
+            println!("Additional arguments required (address)");
         }
     };
 }
@@ -91,7 +95,6 @@ fn interactive(mut mem: &mut NoviMem) {
                 parsed.reverse();
                 if let Some(cmd) = parsed.pop() {
                     match cmd {
-                        "c" => mem.clear_results(),
                         "b" => search_num!(u8, parsed, mem),
                         "i8" => search_num!(i8, parsed, mem),
                         "u8" => search_num!(u8, parsed, mem),
@@ -109,6 +112,8 @@ fn interactive(mut mem: &mut NoviMem) {
                         "f64" => search_float!(f64, parsed, mem),
                         "p" => mem.print_results(),
                         "pm" => mem.print_modules(),
+                        "c" => mem.clear_results(),
+                        "clear" => mem.clear_results(),
                         "save" => {
                             if let Some(name) = parsed.pop() {
                                 mem.save_search(name.to_string());
@@ -161,15 +166,26 @@ fn interactive(mut mem: &mut NoviMem) {
                         "wf" => writeval!(f32, parsed, mem),
                         "wf32" => writeval!(f32, parsed, mem),
                         "wf64" => writeval!(f64, parsed, mem),
+                        // Image commands
                         "img" => {
                             if let Some(addr_str) = parsed.pop() {
-                                if let Ok(addr) = <u64>::from_str_radix(addr_str, 16) {
+                                if let Ok(addr) =
+                                    <u64>::from_str_radix(&addr_str.replace("0x", ""), 16)
+                                {
                                     if let Some(size_str) = parsed.pop() {
                                         if let Ok(size) = size_str.parse::<usize>() {
                                             m_img.print_img(mem, addr, size);
+                                        } else {
+                                            println!("Unable to parse {} as size", size_str);
                                         }
+                                    } else {
+                                        println!("Additional arguments required (size)");
                                     }
+                                } else {
+                                    println!("Unable to parse {} as address", addr_str);
                                 }
+                            } else {
+                                println!("Additional arguments required (address)");
                             }
                         }
                         "x" => {

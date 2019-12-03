@@ -39,9 +39,14 @@ impl MemRegion {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SearchResult {
-    region_key: String,
+    region_key: u64,
     offset: usize,
     address: u64,
+}
+
+struct SnapShot {
+    region_key: u64,
+    data: Vec<u8>,
 }
 
 pub struct NoviMem {
@@ -50,6 +55,7 @@ pub struct NoviMem {
     regions: Vec<MemRegion>,
     searches: HashMap<String, Vec<SearchResult>>,
     results: Vec<SearchResult>,
+    snapshots: Vec<SnapShot>,
     memfile: File,
 }
 
@@ -59,8 +65,9 @@ impl NoviMem {
             pid,
             pname,
             regions: Vec::new(),
-            searches: HashMap::<String, Vec<SearchResult>>::new(),
+            searches: HashMap::new(),
             results: Vec::new(),
+            snapshots: Vec::new(),
             memfile: NoviMem::open_mem(pid),
         };
         m.parse_maps();
@@ -68,7 +75,7 @@ impl NoviMem {
     }
 
     pub fn print_modules(&self) {
-        self.regions.iter().for_each(|(region)| {
+        self.regions.iter().for_each(|region| {
             println!(
                 "{:X}:{:X}\t{}",
                 region.start_addr, region.end_addr, region.name
@@ -181,6 +188,19 @@ impl NoviMem {
     //     }
     // }
 
+    pub fn take_snapshots(&mut self, limit_regions: Option<Vec<u64>>) {
+        self.snapshots.clear();
+        let mut retvec = Vec::<SnapShot>::new();
+        self.regions.iter_mut().for_each(|r| {
+            if let Some(data) = self.getval(r.start_addr, r.size) {
+                retvec.push(SnapShot {
+                    region_key: r.start_addr,
+                    data: data,
+                });
+            }
+        });
+    }
+
     pub fn print_results(&self) {
         self.results.iter().for_each(|result| {
             println!(
@@ -223,7 +243,7 @@ impl NoviMem {
                         if let Ok(buf) = reader.fill_buf() {
                             re.find_iter(buf).for_each(|m| {
                                 results.push(SearchResult {
-                                    region_key: region.name.to_string(),
+                                    region_key: region.start_addr,
                                     offset: m.start(),
                                     address: region.start_addr + m.start() as u64,
                                 })
