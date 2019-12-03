@@ -1,7 +1,7 @@
 mod novimem;
 use novimem::{mem_image::MemImage, proc_search::ProcSearch, NoviMem};
 use std::io::{stdin, stdout, Write};
-use std::{env, f32, i32, mem::size_of, u8};
+use std::{env, f32, i32, mem::size_of, u8, process};
 
 fn do_search(mem: &mut NoviMem, val: &[u8]) {
     let num_results = mem.search(val);
@@ -119,7 +119,17 @@ fn interactive(mut mem: &mut NoviMem) {
                         "wu32" => writeval!(u32, parsed, mem),
                         "wi32" => writeval!(i32, parsed, mem),
                         "wf" => writeval!(f32, parsed, mem),
-                        "img" => m_img.print_img(mem),
+                        "img" => {
+                            if let Some(addr_str) = parsed.pop() {
+                                if let Ok(addr) = <u64>::from_str_radix(addr_str, 16) {
+                                    if let Some(size_str) = parsed.pop() {
+                                        if let Ok(size) = size_str.parse::<usize>() {
+                                            m_img.print_img(mem, addr, size);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         "x" => {
                             mem.save_searches_to_file();
                             break;
@@ -136,7 +146,8 @@ fn interactive(mut mem: &mut NoviMem) {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if let Some(search_str) = args.get(1) {
-        if let Some(procs) = ProcSearch::search(search_str) {
+        if let Some(mut procs) = ProcSearch::search(search_str) {
+            procs.retain(|(_, pid)| *pid != process::id());
             if !procs.is_empty() {
                 println!("Found {} total", procs.len());
                 let (name, pid) = if procs.len() > 1 {

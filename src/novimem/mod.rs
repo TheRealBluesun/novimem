@@ -47,7 +47,6 @@ struct SearchResult {
 pub struct NoviMem {
     pid: u32,
     pname: String,
-    // regions: HashMap<String, MemRegion>,
     regions: Vec<MemRegion>,
     searches: HashMap<String, Vec<SearchResult>>,
     results: Vec<SearchResult>,
@@ -161,6 +160,19 @@ impl NoviMem {
         }
     }
 
+    // pub fn get_region(&self, addr: u64) -> Option<&MemRegion> {
+    //     let found: Vec<MemRegion> = self
+    //         .regions
+    //         .into_iter()
+    //         .filter(|region| region.start_addr <= addr && region.end_addr >= addr)
+    //         .collect();
+    //     if found.len() == 1 {
+    //         found.first()
+    //     } else {
+    //         None
+    //     }
+    // }
+
     // pub fn get_region_contents(&mut self, region_key: &str) -> Option<Vec<u8>> {
     //     if let Some(region) = self.regions.get(region_key) {
     //         self.getval(region.start_addr, region.size)
@@ -172,12 +184,6 @@ impl NoviMem {
 
     pub fn print_results(&self) {
         self.results.iter().for_each(|result| {
-            // if let Some(region) = self.regions.get(&result.region_key) {
-            //     println!(
-            //         "\t{:X} ({} + {:X})",
-            //         result.address, region.name, result.offset
-            //     );
-            // }
             println!(
                 "\t{:X} ({} + {:X})",
                 result.address, result.region_key, result.offset
@@ -306,7 +312,7 @@ impl NoviMem {
                                     }
                                 } else {
                                     println!("Failed to capture module name {}", resline);
-                                    String::from("[anon]")
+                                    format!("{:X}", start)
                                 },
                             };
                             self.regions.push(region);
