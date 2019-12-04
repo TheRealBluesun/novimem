@@ -44,10 +44,19 @@ struct SearchResult {
     address: u64,
 }
 
+#[derive(Clone)]
 struct SnapShot {
     region_key: u64,
     data: Vec<u8>,
 }
+
+impl PartialEq for SnapShot {
+    fn eq(&self, other: &Self) -> bool {
+        self.region_key == other.region_key
+    }
+}
+
+impl Eq for SnapShot {}
 
 pub struct NoviMem {
     pid: u32,
@@ -57,6 +66,11 @@ pub struct NoviMem {
     results: Vec<SearchResult>,
     snapshots: Vec<SnapShot>,
     memfile: File,
+}
+
+pub enum SearchType {
+    Changed,
+    Unchanged,
 }
 
 impl NoviMem {
@@ -188,17 +202,66 @@ impl NoviMem {
     //     }
     // }
 
-    pub fn take_snapshots(&mut self, limit_regions: Option<Vec<u64>>) {
-        self.snapshots.clear();
-        let mut retvec = Vec::<SnapShot>::new();
-        self.regions.iter_mut().for_each(|r| {
+    pub fn take_snapshots(&mut self, stype: Option<SearchType>) {
+        // Get the current snapshot of all regions
+        let mut snapshots = Vec::<SnapShot>::with_capacity(self.regions.len());
+        self.regions.clone().iter().for_each(|r| {
             if let Some(data) = self.getval(r.start_addr, r.size) {
-                retvec.push(SnapShot {
+                snapshots.push(SnapShot {
                     region_key: r.start_addr,
                     data: data,
                 });
             }
         });
+
+        if let Some(t) = stype {
+            if !self.snapshots.is_empty() {
+                // We have a search type specified and we have a previous snapshot
+                // Only retain the snapshots that exist in both
+                snapshots.retain(|s| self.snapshots.contains(s));
+                // TODO: This may become more complex in the future
+                let should_equal = match t {
+                    SearchType::Changed => false,
+                    SearchType::Unchanged => true,
+                };
+                // Compare our new snapshot with the existing snapshots
+                // For each snapshot, use our chosen compare method
+                // to decide which addresses to add to our results
+                snapshots.iter().for_each(|s| {
+                    // For each byte in this snapshot's data, compare with
+                    // the comparable self.snapshot's data
+                    if let Some(idx) = self
+                        .snapshots
+                        .iter()
+                        .position(|prev_snap| s.region_key == prev_snap.region_key)
+                    {
+                        let prev_snap = &self.snapshots.clone()[idx];
+                        // Now we have our previous snapshot and our existing snapshot -- let's compare the data
+                        // and save off the indeces where they match
+                        let matching_addresses: Vec<u64> = prev_snap
+                            .data
+                            .iter()
+                            .zip(&s.data)
+                            .enumerate()
+                            .filter_map(|(i, (a, b))| {
+                                if (*a == *b) == should_equal {
+                                    Some(i as u64 + s.region_key)
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+                    } else {
+                        println!(
+                            "Snapshot contains region not included in existing snapshots...huh?"
+                        );
+                    }
+                });
+            } else {
+                println!("Search type specified, but no snapshot currently exists!");
+            }
+        }
+        self.snapshots = snapshots;
     }
 
     pub fn print_results(&self) {
