@@ -62,8 +62,8 @@ pub struct NoviMem {
     pid: u32,
     pname: String,
     regions: Vec<MemRegion>,
-    searches: HashMap<String, Vec<SearchResult>>,
-    results: Vec<SearchResult>,
+    searches: HashMap<String, Vec<u64>>,
+    results: Vec<u64>,
     snapshots: Vec<SnapShot>,
     memfile: File,
 }
@@ -238,7 +238,7 @@ impl NoviMem {
                         let prev_snap = &self.snapshots.clone()[idx];
                         // Now we have our previous snapshot and our existing snapshot -- let's compare the data
                         // and save off the indeces where they match
-                        let matching_addresses: Vec<u64> = prev_snap
+                        self.results = prev_snap
                             .data
                             .iter()
                             .zip(&s.data)
@@ -267,19 +267,20 @@ impl NoviMem {
     pub fn print_results(&self) {
         self.results.iter().for_each(|result| {
             println!(
-                "\t{:X} ({} + {:X})",
-                result.address, result.region_key, result.offset
+                "\t{:X}", // ({} + {:X})",
+                result    //, result.region_key, result.offset
             );
         });
         println!("\t{} results", self.results.len());
     }
 
     pub fn results(&self) -> Vec<u64> {
-        let mut retvec = Vec::<u64>::new();
-        self.results
-            .iter()
-            .for_each(|result| retvec.push(result.address));
-        retvec
+        // let mut retvec = Vec::<u64>::new();
+        // self.results
+        //     .iter()
+        //     .for_each(|result| retvec.push(result.address));
+        // retvec
+        self.results.clone()
     }
 
     pub fn search(&mut self, val: &[u8]) -> usize {
@@ -296,7 +297,7 @@ impl NoviMem {
             .dot_matches_new_line(true)
             .case_insensitive(false);
         if let Ok(re) = builder.build() {
-            let mut results = Vec::new();
+            // let mut results = Vec::new();
             // If this is a new search, look through everything
             if self.results.is_empty() {
                 for region in self.regions.iter() {
@@ -304,13 +305,18 @@ impl NoviMem {
                     if memfile.seek(SeekFrom::Start(region.start_addr)).is_ok() {
                         let mut reader = BufReader::with_capacity(region.size, &memfile);
                         if let Ok(buf) = reader.fill_buf() {
-                            re.find_iter(buf).for_each(|m| {
-                                results.push(SearchResult {
-                                    region_key: region.start_addr,
-                                    offset: m.start(),
-                                    address: region.start_addr + m.start() as u64,
-                                })
-                            });
+                            // re.find_iter(buf).for_each(|m| {
+                            // results.push(SearchResult {
+                            //     region_key: region.start_addr,
+                            //     offset: m.start(),
+                            //     address: region.start_addr + m.start() as u64,
+                            // })
+                            //     results.push(region.start_addr + m.start() as u64)
+                            // });
+                            self.results = re
+                                .find_iter(buf)
+                                .map(|m| region.start_addr + m.start() as u64)
+                                .collect();
                         } else {
                             println!(
                                 "Unable to fill buffer from memory region {} :-(",
@@ -326,16 +332,30 @@ impl NoviMem {
                 }
             } else {
                 // Otherwise, only look through our existing results
-                let results_cpy = self.results.clone();
-                results_cpy.iter().for_each(|search_result| {
-                    if let Some(read_val) = self.getval(search_result.address, val.len()) {
-                        if read_val == val {
-                            results.push(search_result.to_owned());
+                let results_cpy: Vec<u64> = self.results.clone();
+                // results_cpy.iter().for_each(|search_result| {
+                //     if let Some(read_val) = self.getval(*search_result, val.len()) {
+                //         if read_val == val {
+                //             results.push(*search_result);
+                //         }
+                //     }
+                // })
+                self.results = results_cpy
+                    .iter()
+                    .filter_map(|r| {
+                        if let Some(read_val) = self.getval(*r, val.len()) {
+                            if read_val == val {
+                                Some(*r)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
                         }
-                    }
-                })
+                    })
+                    .collect();
             }
-            self.results = results;
+        // self.results = results;
         } else {
             println!("Unable to build search :-(");
         }
