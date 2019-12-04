@@ -1,5 +1,5 @@
 mod novimem;
-use novimem::{mem_image::MemImage, proc_search::ProcSearch, NoviMem};
+use novimem::{mem_image::MemImage, proc_search::ProcSearch, NoviMem, SearchType};
 use std::io::{stdin, stdout, Write};
 use std::{env, f32, i32, mem::size_of, process, u8};
 
@@ -15,45 +15,49 @@ fn do_search(mem: &mut NoviMem, val: &[u8]) {
     }
 }
 
+fn get_addr(parsed: &mut Vec<&str>, mem: &NoviMem) -> Option<u64> {
+    if let Some(addr_str) = parsed.pop() {
+        if let Ok(addr) = u64::from_str_radix(&addr_str.replace("0x", ""), 16) {
+            Some(addr)
+        } else {
+            println!("Unable to parse {} as address", addr_str);
+            None
+        }
+    } else if mem.results().len() == 1 {
+        Some(mem.results()[0])
+    } else {
+        println!("Additional arguments required (address)");
+        None
+    }
+}
+
 macro_rules! readval {
     ($type: ty, $parsed: ident, $mem: ident) => {
-        if let Some(addr_str) = $parsed.pop() {
-            if let Ok(addr) = u64::from_str_radix(&addr_str.replace("0x", ""), 16) {
-                if let Some(val) = $mem.getval(addr, size_of::<u32>()) {
-                    // TODO: Is there a cleaner way to do this? (slice to fixed size array)
-                    let mut arr = [0u8; size_of::<$type>()];
-                    arr.copy_from_slice(&val[..size_of::<$type>()]);
-                    println!("{}", <$type>::from_le_bytes(arr));
-                } else {
-                    println!("Unable read value at address {:X}", addr);
-                }
+        if let Some(addr) = get_addr(&mut $parsed, $mem) {
+            if let Some(val) = $mem.getval(addr, size_of::<$type>()) {
+                // TODO: Is there a cleaner way to do this? (slice to fixed size array)
+                let mut arr = [0u8; size_of::<$type>()];
+                arr.copy_from_slice(&val[..size_of::<$type>()]);
+                println!("{}", <$type>::from_le_bytes(arr));
             } else {
-                println!("Unable to parse {} as address", addr_str);
+                println!("Unable read value at address {:X}", addr);
             }
-        } else {
-            println!("Additional arguments required (address)");
         }
     };
 }
 
 macro_rules! writeval {
     ($type: ty, $parsed: ident, $mem: ident) => {
-        if let Some(addr_str) = $parsed.pop() {
-            if let Ok(addr) = u64::from_str_radix(&addr_str.replace("0x", ""), 16) {
-                if let Some(val_str) = $parsed.pop() {
-                    if let Ok(val) = val_str.parse::<$type>() {
-                        $mem.setval(addr, &val.to_le_bytes());
-                    } else {
-                        println!("Unable to parse {} as value", val_str);
-                    }
+        if let Some(addr) = get_addr(&mut $parsed, $mem) {
+            if let Some(val_str) = $parsed.pop() {
+                if let Ok(val) = val_str.parse::<$type>() {
+                    $mem.setval(addr, &val.to_le_bytes());
                 } else {
-                    println!("Additional arguments required (value)")
+                    println!("Unable to parse {} as value", val_str);
                 }
             } else {
-                println!("Unable to parse {} as address", addr_str);
+                println!("Additional arguments required (value)")
             }
-        } else {
-            println!("Additional arguments required (address)");
         }
     };
 }
@@ -92,7 +96,7 @@ macro_rules! search_float {
     };
 }
 
-fn interactive(mut mem: &mut NoviMem) {
+fn interactive(mem: &mut NoviMem) {
     let mut m_img = MemImage::new();
     loop {
         print!("NM>");
@@ -105,6 +109,31 @@ fn interactive(mut mem: &mut NoviMem) {
                 parsed.reverse();
                 if let Some(cmd) = parsed.pop() {
                     match cmd {
+                        "init" => {
+                            mem.take_snapshots(None);
+                        }
+                        "uch" => {
+                            let num_results = mem.take_snapshots(Some(SearchType::Unchanged));
+                            println!(
+                                "Found {} {}",
+                                num_results,
+                                if num_results > 1 { "results" } else { "result" }
+                            );
+                            if num_results <= 10 {
+                                mem.print_results();
+                            }
+                        }
+                        "ch" => {
+                            let num_results = mem.take_snapshots(Some(SearchType::Changed));
+                            println!(
+                                "Found {} {}",
+                                num_results,
+                                if num_results > 1 { "results" } else { "result" }
+                            );
+                            if num_results <= 10 {
+                                mem.print_results();
+                            }
+                        }
                         "b" => search_num!(u8, parsed, mem),
                         "i8" => search_num!(i8, parsed, mem),
                         "u8" => search_num!(u8, parsed, mem),
@@ -151,11 +180,13 @@ fn interactive(mut mem: &mut NoviMem) {
                         "rb" => readval!(u8, parsed, mem),
                         "ri8" => readval!(i8, parsed, mem),
                         "ru8" => readval!(u8, parsed, mem),
+                        "rs" => readval!(i16, parsed, mem),
+                        "rus" => readval!(u16, parsed, mem),
                         "ri16" => readval!(i16, parsed, mem),
                         "ru16" => readval!(u16, parsed, mem),
                         "ri" => readval!(i32, parsed, mem),
-                        "ri32" => readval!(i32, parsed, mem),
                         "ru" => readval!(u32, parsed, mem),
+                        "ri32" => readval!(i32, parsed, mem),
                         "ru32" => readval!(u32, parsed, mem),
                         "ri64" => readval!(i64, parsed, mem),
                         "ru64" => readval!(u64, parsed, mem),
@@ -164,12 +195,12 @@ fn interactive(mut mem: &mut NoviMem) {
                         "wi8" => writeval!(i8, parsed, mem),
                         "wu8" => writeval!(u8, parsed, mem),
                         "ws" => writeval!(i16, parsed, mem),
-                        "wi16" => writeval!(i16, parsed, mem),
                         "wus" => writeval!(u16, parsed, mem),
+                        "wi16" => writeval!(i16, parsed, mem),
                         "wu16" => writeval!(u16, parsed, mem),
                         "wi" => writeval!(i32, parsed, mem),
-                        "wi32" => writeval!(i32, parsed, mem),
                         "wu" => writeval!(u32, parsed, mem),
+                        "wi32" => writeval!(i32, parsed, mem),
                         "wu32" => writeval!(u32, parsed, mem),
                         "wi64" => writeval!(i64, parsed, mem),
                         "wu64" => writeval!(u64, parsed, mem),

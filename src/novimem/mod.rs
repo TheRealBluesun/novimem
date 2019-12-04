@@ -202,7 +202,27 @@ impl NoviMem {
     //     }
     // }
 
-    pub fn take_snapshots(&mut self, stype: Option<SearchType>) {
+    pub fn get_containing_region(&self, addr: u64) -> Option<(u64, &String)> {
+        if let Some((addr, name)) = self
+            .regions
+            .iter()
+            .filter_map(|r| {
+                if r.start_addr <= addr && r.end_addr >= addr {
+                    Some((r.start_addr, &r.name))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<(u64, &String)>>()
+            .first()
+        {
+            Some((*addr, name))
+        } else {
+            None
+        }
+    }
+
+    pub fn take_snapshots(&mut self, stype: Option<SearchType>) -> usize {
         // Get the current snapshot of all regions
         let mut snapshots = Vec::<SnapShot>::with_capacity(self.regions.len());
         self.regions.clone().iter().for_each(|r| {
@@ -262,25 +282,30 @@ impl NoviMem {
             }
         }
         self.snapshots = snapshots;
+        self.results.len()
     }
 
     pub fn print_results(&self) {
         self.results.iter().for_each(|result| {
-            println!(
-                "\t{:X}", // ({} + {:X})",
-                result    //, result.region_key, result.offset
-            );
+            if let Some((region_addr, region_name)) = self.get_containing_region(*result) {
+                println!(
+                    "\t{:X} ({:X} + {:X} in {})",
+                    result, region_addr, result-region_addr, region_name
+                );
+            } else {
+                println!("\t{:X}", result);
+            }
         });
         println!("\t{} results", self.results.len());
     }
 
-    pub fn results(&self) -> Vec<u64> {
+    pub fn results(&self) -> &Vec<u64> {
         // let mut retvec = Vec::<u64>::new();
         // self.results
         //     .iter()
         //     .for_each(|result| retvec.push(result.address));
         // retvec
-        self.results.clone()
+        &self.results
     }
 
     pub fn search(&mut self, val: &[u8]) -> usize {
