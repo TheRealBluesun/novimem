@@ -5,7 +5,11 @@ use std::{env, f32, i32, mem::size_of, process, u8};
 
 fn do_search(mem: &mut NoviMem, val: &[u8]) {
     let num_results = mem.search(val);
-    println!("Found {} results", num_results);
+    println!(
+        "Found {} {}",
+        num_results,
+        if num_results > 1 { "results" } else { "result" }
+    );
     if num_results <= 10 {
         mem.print_results();
     }
@@ -20,8 +24,14 @@ macro_rules! readval {
                     let mut arr = [0u8; size_of::<$type>()];
                     arr.copy_from_slice(&val[..size_of::<$type>()]);
                     println!("{}", <$type>::from_le_bytes(arr));
+                } else {
+                    println!("Unable read value at address {:X}", addr);
                 }
+            } else {
+                println!("Unable to parse {} as address", addr_str);
             }
+        } else {
+            println!("Additional arguments required (address)");
         }
     };
 }

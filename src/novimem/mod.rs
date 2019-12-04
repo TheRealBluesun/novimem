@@ -297,7 +297,7 @@ impl NoviMem {
             .dot_matches_new_line(true)
             .case_insensitive(false);
         if let Ok(re) = builder.build() {
-            // let mut results = Vec::new();
+            let mut results = Vec::new();
             // If this is a new search, look through everything
             if self.results.is_empty() {
                 for region in self.regions.iter() {
@@ -305,18 +305,8 @@ impl NoviMem {
                     if memfile.seek(SeekFrom::Start(region.start_addr)).is_ok() {
                         let mut reader = BufReader::with_capacity(region.size, &memfile);
                         if let Ok(buf) = reader.fill_buf() {
-                            // re.find_iter(buf).for_each(|m| {
-                            // results.push(SearchResult {
-                            //     region_key: region.start_addr,
-                            //     offset: m.start(),
-                            //     address: region.start_addr + m.start() as u64,
-                            // })
-                            //     results.push(region.start_addr + m.start() as u64)
-                            // });
-                            self.results = re
-                                .find_iter(buf)
-                                .map(|m| region.start_addr + m.start() as u64)
-                                .collect();
+                            re.find_iter(buf)
+                                .for_each(|m| results.push(region.start_addr + m.start() as u64));
                         } else {
                             println!(
                                 "Unable to fill buffer from memory region {} :-(",
@@ -332,15 +322,8 @@ impl NoviMem {
                 }
             } else {
                 // Otherwise, only look through our existing results
-                let results_cpy: Vec<u64> = self.results.clone();
-                // results_cpy.iter().for_each(|search_result| {
-                //     if let Some(read_val) = self.getval(*search_result, val.len()) {
-                //         if read_val == val {
-                //             results.push(*search_result);
-                //         }
-                //     }
-                // })
-                self.results = results_cpy
+                let results_cpy = self.results.clone();
+                results = results_cpy
                     .iter()
                     .filter_map(|r| {
                         if let Some(read_val) = self.getval(*r, val.len()) {
@@ -355,7 +338,7 @@ impl NoviMem {
                     })
                     .collect();
             }
-        // self.results = results;
+            self.results = results;
         } else {
             println!("Unable to build search :-(");
         }
