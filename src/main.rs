@@ -285,6 +285,7 @@ fn main() {
     } else {
         println!("ERR: Requires process name");
     }
+    stdout().flush().unwrap();
 }
 
 #[cfg(test)]
