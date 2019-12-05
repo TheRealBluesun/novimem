@@ -233,6 +233,7 @@ impl NoviMem {
                 });
             }
         });
+        let mut resvec = Vec::<u64>::new();
 
         if let Some(t) = stype {
             if !self.snapshots.is_empty() {
@@ -258,19 +259,21 @@ impl NoviMem {
                         let prev_snap = &self.snapshots.clone()[idx];
                         // Now we have our previous snapshot and our existing snapshot -- let's compare the data
                         // and save off the indeces where they match
-                        self.results = prev_snap
-                            .data
-                            .iter()
-                            .zip(&s.data)
-                            .enumerate()
-                            .filter_map(|(i, (a, b))| {
-                                if (*a == *b) == should_equal {
-                                    Some(i as u64 + s.region_key)
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
+                        resvec.extend(
+                            prev_snap
+                                .data
+                                .iter()
+                                .zip(&s.data)
+                                .enumerate()
+                                .filter_map(|(i, (a, b))| {
+                                    if (*a == *b) == should_equal {
+                                        Some(i as u64 + s.region_key)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<u64>>(),
+                        );
                     } else {
                         println!(
                             "Snapshot contains region not included in existing snapshots...huh?"
@@ -290,7 +293,10 @@ impl NoviMem {
             if let Some((region_addr, region_name)) = self.get_containing_region(*result) {
                 println!(
                     "\t{:X} ({:X} + {:X} in {})",
-                    result, region_addr, result-region_addr, region_name
+                    result,
+                    region_addr,
+                    result - region_addr,
+                    region_name
                 );
             } else {
                 println!("\t{:X}", result);
@@ -300,11 +306,6 @@ impl NoviMem {
     }
 
     pub fn results(&self) -> &Vec<u64> {
-        // let mut retvec = Vec::<u64>::new();
-        // self.results
-        //     .iter()
-        //     .for_each(|result| retvec.push(result.address));
-        // retvec
         &self.results
     }
 
@@ -398,41 +399,42 @@ impl NoviMem {
         // Parse the maps file to find regions of interest
         match builder.build() {
             Ok(re) => {
-                for line in BufReader::new(mapsfile).lines() {
-                    let resline = line.unwrap();
-                    if let Some(cap) = re.captures(resline.as_str()) {
-                        if cap.len() > 0 {
-                            let start = u64::from_str_radix(&cap[1], 16).unwrap();
-                            let end = u64::from_str_radix(&cap[2], 16).unwrap();
-                            let region = MemRegion {
-                                start_addr: start,
-                                end_addr: end,
-                                size: (end - start) as usize,
-                                readable: &cap[3] == "r",
-                                writeable: &cap[4] == "w",
-                                execable: &cap[5] == "x",
-                                private: &cap[6] == "p",
-                                shared: &cap[6] == "s",
-                                name: if let Some(n) = cap.get(7) {
-                                    let name = n.as_str().to_string();
-                                    if name.is_empty() {
-                                        format!("{:X}", start)
+                BufReader::new(mapsfile).lines().for_each(|line| {
+                    if let Ok(resline) = line {
+                        if let Some(cap) = re.captures(resline.as_str()) {
+                            if cap.len() > 0 {
+                                let start = u64::from_str_radix(&cap[1], 16).unwrap();
+                                let end = u64::from_str_radix(&cap[2], 16).unwrap();
+                                let region = MemRegion {
+                                    start_addr: start,
+                                    end_addr: end,
+                                    size: (end - start) as usize,
+                                    readable: &cap[3] == "r",
+                                    writeable: &cap[4] == "w",
+                                    execable: &cap[5] == "x",
+                                    private: &cap[6] == "p",
+                                    shared: &cap[6] == "s",
+                                    name: if let Some(n) = cap.get(7) {
+                                        let name = n.as_str().to_string();
+                                        if name.is_empty() {
+                                            format!("{:X}", start)
+                                        } else {
+                                            name.replace('\0', "")
+                                        }
                                     } else {
-                                        name.replace('\0', "")
-                                    }
-                                } else {
-                                    println!("Failed to capture module name {}", resline);
-                                    format!("{:X}", start)
-                                },
-                            };
-                            self.regions.push(region);
+                                        println!("Failed to capture module name {}", resline);
+                                        format!("{:X}", start)
+                                    },
+                                };
+                                self.regions.push(region);
+                            } else {
+                                println!("Did not include maps line {}", resline);
+                            }
                         } else {
-                            println!("Did not include maps line {}", resline);
+                            println!("Failed to parse {}", &resline)
                         }
-                    } else {
-                        println!("Failed to parse {}", &resline)
                     }
-                }
+                });
             }
             Err(e) => println!("ERR: Unable to build regex in parse_maps(): {}", e), // We only care about modules that are marked as executable
         }
