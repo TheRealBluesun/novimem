@@ -1,7 +1,7 @@
 mod novimem;
 use novimem::{mem_image::MemImage, proc_search::ProcSearch, NoviMem, SearchType};
 use std::io::{stdin, stdout, Write};
-use std::{env, f32, i32, mem::size_of, process, u8};
+use std::{env, f32, i32, mem::size_of, u8};
 
 fn do_search(mem: &mut NoviMem, val: &[u8]) {
     let num_results = mem.search(val);
@@ -246,7 +246,6 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if let Some(search_str) = args.get(1) {
         if let Some(mut procs) = ProcSearch::search(search_str) {
-            procs.retain(|(_, pid)| *pid != process::id());
             if !procs.is_empty() {
                 println!("Found {} total", procs.len());
                 let (name, pid) = if procs.len() > 1 {
