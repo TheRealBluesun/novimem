@@ -12,6 +12,8 @@ use std::{
     u64,
 };
 
+use rayon::prelude::*;
+
 #[derive(Debug, Clone)]
 struct MemRegion {
     start_addr: u64,
@@ -64,6 +66,7 @@ pub struct NoviMem {
     regions: Vec<MemRegion>,
     searches: HashMap<String, Vec<u64>>,
     results: Vec<u64>,
+    values: Vec<u8>,
     snapshots: Vec<SnapShot>,
     memfile: File,
 }
@@ -81,6 +84,7 @@ impl NoviMem {
             regions: Vec::new(),
             searches: HashMap::new(),
             results: Vec::new(),
+            values: Vec::new(),
             snapshots: Vec::new(),
             memfile: NoviMem::open_mem(pid),
         };
@@ -233,58 +237,90 @@ impl NoviMem {
                 });
             }
         });
-        let mut resvec = Vec::<u64>::new();
+        let mut resvec: Vec<u64> = Vec::new();
+        let mut values: Vec<u8> = Vec::new();
 
         if let Some(t) = stype {
             if !self.snapshots.is_empty() {
                 // We have a search type specified and we have a previous snapshot
                 // Only retain the snapshots that exist in both
-                snapshots.retain(|s| self.snapshots.contains(s));
+                // snapshots.retain(|s| self.snapshots.contains(s));
                 // TODO: This may become more complex in the future
                 let should_equal = match t {
                     SearchType::Changed => false,
                     SearchType::Unchanged => true,
                 };
-                // Compare our new snapshot with the existing snapshots
-                // For each snapshot, use our chosen compare method
-                // to decide which addresses to add to our results
-                snapshots.iter().for_each(|s| {
-                    // For each byte in this snapshot's data, compare with
-                    // the comparable self.snapshot's data
-                    if let Some(idx) = self
-                        .snapshots
+                if self.results.is_empty() {
+                    // Compare our new snapshot with the existing snapshots
+                    // For each snapshot, use our chosen compare method
+                    // to decide which addresses to add to our results
+                    snapshots.iter().for_each(|s| {
+                        // For each byte in this snapshot's data, compare with
+                        // the comparable self.snapshot's data
+                        if let Some(idx) = self
+                            .snapshots
+                            .iter()
+                            .position(|prev_snap| s.region_key == prev_snap.region_key)
+                        {
+                            let prev_snap = &self.snapshots.clone()[idx];
+                            // Now we have our previous snapshot and our existing snapshot -- let's compare the data
+                            // and save off the indeces where they match
+
+                            resvec.extend(
+                                prev_snap
+                                    .data
+                                    .iter()
+                                    .zip(&s.data)
+                                    .enumerate()
+                                    .filter_map(|(i, (a, b))| {
+                                        if (*a == *b) == should_equal {
+                                            values.push(*a);
+                                            Some(i as u64 + s.region_key)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<u64>>(),
+                            );
+                        } else {
+                            println!(
+                            "Snapshot contains region not included in existing snapshots...huh?"
+                        );
+                        }
+                    });
+                } else {
+                    // We have results, search through them instead
+                    resvec = self
+                        .results()
+                        .clone()
                         .iter()
-                        .position(|prev_snap| s.region_key == prev_snap.region_key)
-                    {
-                        let prev_snap = &self.snapshots.clone()[idx];
-                        // Now we have our previous snapshot and our existing snapshot -- let's compare the data
-                        // and save off the indeces where they match
-                        resvec.extend(
-                            prev_snap
-                                .data
-                                .iter()
-                                .zip(&s.data)
-                                .enumerate()
-                                .filter_map(|(i, (a, b))| {
-                                    if (*a == *b) == should_equal {
-                                        Some(i as u64 + s.region_key)
+                        .zip(self.values.clone())
+                        .enumerate()
+                        .filter_map(|(i, (a, v))| {
+                            if let Some(val) = self.getval(*a, 1) {
+                                if let Some(val) = val.first() {
+                                    if (*val == v) == should_equal {
+                                        values.push(*val);
+                                        Some(*a)
                                     } else {
                                         None
                                     }
-                                })
-                                .collect::<Vec<u64>>(),
-                        );
-                    } else {
-                        println!(
-                            "Snapshot contains region not included in existing snapshots...huh?"
-                        );
-                    }
-                });
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                }
             } else {
                 println!("Search type specified, but no snapshot currently exists!");
             }
         }
         self.snapshots = snapshots;
+        self.results = resvec;
+        self.values = values;
         self.results.len()
     }
 
@@ -326,7 +362,7 @@ impl NoviMem {
             let mut results = Vec::new();
             // If this is a new search, look through everything
             if self.results.is_empty() {
-                for region in self.regions.iter() {
+                self.regions.iter().for_each(|region| {
                     // Fill the buffer with this module's memory by seeking to the start address first
                     if memfile.seek(SeekFrom::Start(region.start_addr)).is_ok() {
                         let mut reader = BufReader::with_capacity(region.size, &memfile);
@@ -345,7 +381,7 @@ impl NoviMem {
                             region.name, region.start_addr
                         );
                     }
-                }
+                })
             } else {
                 // Otherwise, only look through our existing results
                 let results_cpy = self.results.clone();
